@@ -1,11 +1,10 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en-us">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Escape Road City 2</title>
-
+  <title>Tung Sahur Horror</title>
   <style>
     html, body {
       background: #000;
@@ -16,46 +15,36 @@
       margin: 0;
     }
 
-    body {
-      position: relative;
-      font-family: Arial, sans-serif;
-    }
-
     #gameContainer {
       position: absolute;
       display: none;
-      overflow: hidden;
-      background: #000;
     }
 
     #gameContainer canvas {
       position: absolute;
       display: block;
-      width: 100%;
-      height: 100%;
     }
 
     #loadingBar {
-      color: #fff;
+      color: white;
       position: fixed;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      font-size: 20px;
+      font-family: Arial, sans-serif;
       text-align: center;
-      z-index: 10;
-      line-height: 1.6;
     }
 
     #loadingSub {
       display: block;
-      font-size: 14px;
-      color: #bbb;
       margin-top: 8px;
+      font-size: 13px;
+      color: #bbb;
     }
   </style>
 </head>
 <body>
+
   <script id="gmsoft-jssdk" src="gmsoftsdk_v5.js"></script>
 
   <div id="gameContainer">
@@ -81,20 +70,30 @@
     function firebaseSetUserProperties(props) {
       console.log("firebaseSetUserProperties (stubbed):", props);
     }
+  </script>
 
+  <script>
     var canvas = document.getElementById("unity-canvas");
     var container = document.getElementById("gameContainer");
     var loadingBar = document.getElementById("loadingBar");
     var pct = document.getElementById("pct");
     var loadingSub = document.getElementById("loadingSub");
 
-    var LOADER_FILE = "escape-road-city-2-v25103106.loader.js";
-    var FRAMEWORK_FILE = "escape-road-city-2-v25103106.framework.js.unityweb";
-    var WASM_FILE = "escape-road-city-2-v25103106.wasm.unityweb";
-    var DATA_PARTS = [
-      "escape-road-city-2-v25103106.data.unityweb.part1",
-      "escape-road-city-2-v25103106.data.unityweb.part2"
-    ];
+    var buildUrl = ".";
+    var config = {
+      dataUrl: "",
+      frameworkUrl: buildUrl + "/escape-road-city-2-v25103106.framework.js.unityweb",
+      codeUrl: buildUrl + "/escape-road-city-2-v25103106.wasm.unityweb",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "azgames.io",
+      productName: "Tung Sahur Horror",
+      productVersion: "25051505",
+      pubId: "",
+      gameId: "tung-sahur-horror",
+      enableMoreGame: "yes",
+      enablePromotion: true,
+      eventLog: false
+    };
 
     function onResize() {
       var w = window.innerWidth;
@@ -104,10 +103,11 @@
       if (w * r > h) {
         w = Math.ceil(h / r);
       }
+
       h = Math.floor(w * r);
 
-      container.style.width = w + "px";
-      container.style.height = h + "px";
+      container.style.width = canvas.style.width = w + "px";
+      container.style.height = canvas.style.height = h + "px";
       container.style.top = Math.floor((window.innerHeight - h) / 2) + "px";
       container.style.left = Math.floor((window.innerWidth - w) / 2) + "px";
     }
@@ -134,7 +134,9 @@
         if (result.done) break;
         chunks.push(result.value);
         total += result.value.length;
-        if (typeof onChunk === "function") onChunk(result.value.length);
+        if (typeof onChunk === "function") {
+          onChunk(result.value.length);
+        }
       }
 
       var merged = new Uint8Array(total);
@@ -153,8 +155,8 @@
 
       function updateLoaded(delta) {
         loadedBytes += delta;
-        var mb = (loadedBytes / (1024 * 1024)).toFixed(2);
-        loadingSub.textContent = "downloading data parts... " + mb + " MB";
+        var mbDone = (loadedBytes / (1024 * 1024)).toFixed(2);
+        loadingSub.textContent = "downloading data... " + mbDone + " MB";
       }
 
       var buffers = [];
@@ -176,70 +178,59 @@
         offset += buffers[k].length;
       }
 
-      loadingSub.textContent = "data merged";
+      loadingSub.textContent = "merging data";
       return URL.createObjectURL(new Blob([merged]));
     }
 
-    async function startGame() {
+    async function prepareDataFile() {
+      var dataParts = [
+        "escape-road-city-2-v25103106.data.unityweb.part1",
+        "escape-road-city-2-v25103106.data.unityweb.part2"
+      ];
+
+      config.dataUrl = await mergeDataParts(dataParts);
+    }
+
+    function loadUnityLoader() {
+      var script = document.createElement("script");
+      script.src = buildUrl + "/escape-road-city-2-v25103106.loader.js";
+
+      script.onload = function() {
+        loadingSub.textContent = "starting unity";
+
+        createUnityInstance(canvas, config, function(progress) {
+          pct.innerText = Math.round(progress * 100) + "%";
+        }).then(function(instance) {
+          window.unityInstance = instance;
+          setTimeout(function() {
+            loadingBar.style.display = "none";
+            container.style.display = "block";
+            window.focus();
+            onResize();
+          }, 2000);
+        }).catch(function(msg) {
+          console.log("Unity load error:", msg);
+          loadingBar.innerHTML = 'failed to load<br><span id="loadingSub">check console for details</span>';
+        });
+      };
+
+      script.onerror = function() {
+        console.log("Failed to load Unity loader script.");
+        loadingBar.innerHTML = 'failed to load<br><span id="loadingSub">loader file missing or wrong path</span>';
+      };
+
+      document.body.appendChild(script);
+    }
+
+    (async function startGame() {
       try {
-        loadingSub.textContent = "merging split data";
-
-        var dataUrl = await mergeDataParts(DATA_PARTS);
-
-        var config = {
-          dataUrl: dataUrl,
-          frameworkUrl: FRAMEWORK_FILE,
-          codeUrl: WASM_FILE,
-          streamingAssetsUrl: "StreamingAssets",
-          companyName: "azgames.io",
-          productName: "Tung Sahur Horror",
-          productVersion: "25051505",
-          pubId: "",
-          gameId: "tung-sahur-horror",
-          enableMoreGame: "yes",
-          enablePromotion: true,
-          eventLog: false
-        };
-
-        loadingSub.textContent = "loading unity loader";
-
-        var script = document.createElement("script");
-        script.src = LOADER_FILE;
-
-        script.onload = function() {
-          loadingSub.textContent = "starting unity";
-
-          createUnityInstance(canvas, config, function(progress) {
-            pct.innerText = Math.round(progress * 100) + "%";
-            loadingSub.textContent = "starting unity";
-          }).then(function(instance) {
-            window.unityInstance = instance;
-
-            setTimeout(function() {
-              loadingBar.style.display = "none";
-              container.style.display = "block";
-              window.focus();
-              onResize();
-            }, 1000);
-          }).catch(function(msg) {
-            console.log("Unity load error:", msg);
-            loadingBar.innerHTML = 'failed to load<br><span id="loadingSub">check console for details</span>';
-          });
-        };
-
-        script.onerror = function() {
-          console.log("Failed to load Unity loader script.");
-          loadingBar.innerHTML = 'failed to load<br><span id="loadingSub">loader file missing or wrong path</span>';
-        };
-
-        document.body.appendChild(script);
+        await prepareDataFile();
+        loadUnityLoader();
       } catch (err) {
         console.log("Startup error:", err);
         loadingBar.innerHTML = 'failed to load<br><span id="loadingSub">' + String(err && err.message ? err.message : err) + '</span>';
       }
-    }
-
-    startGame();
+    })();
   </script>
 </body>
 </html>
