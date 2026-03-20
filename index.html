@@ -18,16 +18,21 @@
 
     body {
       position: relative;
+      font-family: Arial, sans-serif;
     }
 
     #gameContainer {
       position: absolute;
       display: none;
+      overflow: hidden;
+      background: #000;
     }
 
     #gameContainer canvas {
       position: absolute;
       display: block;
+      width: 100%;
+      height: 100%;
     }
 
     #loadingBar {
@@ -36,10 +41,17 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      font-family: Arial, sans-serif;
       font-size: 20px;
       text-align: center;
       z-index: 10;
+      line-height: 1.6;
+    }
+
+    #loadingSub {
+      display: block;
+      font-size: 14px;
+      color: #bbb;
+      margin-top: 8px;
     }
   </style>
 </head>
@@ -52,6 +64,7 @@
 
   <div id="loadingBar">
     loading... <span id="pct">0%</span>
+    <span id="loadingSub">preparing files</span>
   </div>
 
   <script>
@@ -73,22 +86,15 @@
     var container = document.getElementById("gameContainer");
     var loadingBar = document.getElementById("loadingBar");
     var pct = document.getElementById("pct");
+    var loadingSub = document.getElementById("loadingSub");
 
-    var buildUrl = "Build";
-    var config = {
-      dataUrl: buildUrl + "/escape-road-city-2-v25103106.data.unityweb",
-      frameworkUrl: buildUrl + "/escape-road-city-2-v25103106.framework.js.unityweb",
-      codeUrl: buildUrl + "/escape-road-city-2-v25103106.wasm.unityweb",
-      streamingAssetsUrl: "StreamingAssets",
-      companyName: "azgames.io",
-      productName: "Escape Road City 2",
-      productVersion: "v25103106",
-      pubId: "",
-      gameId: "escape-road-city-2",
-      enableMoreGame: "yes",
-      enablePromotion: true,
-      eventLog: false
-    };
+    var LOADER_FILE = "escape-road-city-2-v25103106.loader.js";
+    var FRAMEWORK_FILE = "escape-road-city-2-v25103106.framework.js.unityweb";
+    var WASM_FILE = "escape-road-city-2-v25103106.wasm.unityweb";
+    var DATA_PARTS = [
+      "escape-road-city-2-v25103106.data.unityweb.001",
+      "escape-road-city-2-v25103106.data.unityweb.002"
+    ];
 
     function onResize() {
       var w = window.innerWidth;
@@ -98,13 +104,10 @@
       if (w * r > h) {
         w = Math.ceil(h / r);
       }
-
       h = Math.floor(w * r);
 
       container.style.width = w + "px";
       container.style.height = h + "px";
-      canvas.style.width = w + "px";
-      canvas.style.height = h + "px";
       container.style.top = Math.floor((window.innerHeight - h) / 2) + "px";
       container.style.left = Math.floor((window.innerWidth - w) / 2) + "px";
     }
@@ -112,33 +115,131 @@
     onResize();
     window.addEventListener("resize", onResize);
 
-    var script = document.createElement("script");
-    script.src = buildUrl + "/escape-road-city-2-v25103106.loader.js";
+    async function fetchBinaryWithProgress(url, onChunk) {
+      var response = await fetch(url, { credentials: "same-origin" });
+      if (!response.ok) {
+        throw new Error("Failed to fetch " + url + " (" + response.status + ")");
+      }
 
-    script.onload = function() {
-      createUnityInstance(canvas, config, function(progress) {
-        pct.innerText = Math.round(progress * 100) + "%";
-      }).then(function(instance) {
-        window.unityInstance = instance;
+      if (!response.body) {
+        return await response.arrayBuffer();
+      }
 
-        setTimeout(function() {
-          loadingBar.style.display = "none";
-          container.style.display = "block";
-          window.focus();
-          onResize();
-        }, 2000);
-      }).catch(function(msg) {
-        console.log("Unity load error:", msg);
-        loadingBar.innerHTML = "failed to load";
-      });
-    };
+      var reader = response.body.getReader();
+      var chunks = [];
+      var total = 0;
 
-    script.onerror = function() {
-      console.log("Failed to load Unity loader script.");
-      loadingBar.innerHTML = "failed to load";
-    };
+      while (true) {
+        var result = await reader.read();
+        if (result.done) break;
+        chunks.push(result.value);
+        total += result.value.length;
+        if (typeof onChunk === "function") onChunk(result.value.length);
+      }
 
-    document.body.appendChild(script);
+      var merged = new Uint8Array(total);
+      var offset = 0;
+
+      for (var i = 0; i < chunks.length; i++) {
+        merged.set(chunks[i], offset);
+        offset += chunks[i].length;
+      }
+
+      return merged.buffer;
+    }
+
+    async function mergeDataParts(files) {
+      var loadedBytes = 0;
+
+      function updateLoaded(delta) {
+        loadedBytes += delta;
+        var mb = (loadedBytes / (1024 * 1024)).toFixed(2);
+        loadingSub.textContent = "downloading data parts... " + mb + " MB";
+      }
+
+      var buffers = [];
+      for (var i = 0; i < files.length; i++) {
+        loadingSub.textContent = "downloading part " + (i + 1) + " of " + files.length;
+        var buffer = await fetchBinaryWithProgress(files[i], updateLoaded);
+        buffers.push(new Uint8Array(buffer));
+      }
+
+      var totalLength = 0;
+      for (var j = 0; j < buffers.length; j++) {
+        totalLength += buffers[j].length;
+      }
+
+      var merged = new Uint8Array(totalLength);
+      var offset = 0;
+      for (var k = 0; k < buffers.length; k++) {
+        merged.set(buffers[k], offset);
+        offset += buffers[k].length;
+      }
+
+      loadingSub.textContent = "data merged";
+      return URL.createObjectURL(new Blob([merged]));
+    }
+
+    async function startGame() {
+      try {
+        loadingSub.textContent = "merging split data";
+
+        var dataUrl = await mergeDataParts(DATA_PARTS);
+
+        var config = {
+          dataUrl: dataUrl,
+          frameworkUrl: FRAMEWORK_FILE,
+          codeUrl: WASM_FILE,
+          streamingAssetsUrl: "StreamingAssets",
+          companyName: "azgames.io",
+          productName: "Escape Road City 2",
+          productVersion: "v25103106",
+          pubId: "",
+          gameId: "escape-road-city-2",
+          enableMoreGame: "yes",
+          enablePromotion: true,
+          eventLog: false
+        };
+
+        loadingSub.textContent = "loading unity loader";
+
+        var script = document.createElement("script");
+        script.src = LOADER_FILE;
+
+        script.onload = function() {
+          loadingSub.textContent = "starting unity";
+
+          createUnityInstance(canvas, config, function(progress) {
+            pct.innerText = Math.round(progress * 100) + "%";
+            loadingSub.textContent = "starting unity";
+          }).then(function(instance) {
+            window.unityInstance = instance;
+
+            setTimeout(function() {
+              loadingBar.style.display = "none";
+              container.style.display = "block";
+              window.focus();
+              onResize();
+            }, 1000);
+          }).catch(function(msg) {
+            console.log("Unity load error:", msg);
+            loadingBar.innerHTML = 'failed to load<br><span id="loadingSub">check console for details</span>';
+          });
+        };
+
+        script.onerror = function() {
+          console.log("Failed to load Unity loader script.");
+          loadingBar.innerHTML = 'failed to load<br><span id="loadingSub">loader file missing or wrong path</span>';
+        };
+
+        document.body.appendChild(script);
+      } catch (err) {
+        console.log("Startup error:", err);
+        loadingBar.innerHTML = 'failed to load<br><span id="loadingSub">' + String(err && err.message ? err.message : err) + '</span>';
+      }
+    }
+
+    startGame();
   </script>
 </body>
 </html>
