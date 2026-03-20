@@ -4,21 +4,54 @@
   <meta charset="utf-8" />
   <title>Tung Sahur Horror</title>
   <style>
-    html, body { background: #000; width: 100%; height: 100%; overflow: hidden; padding: 0; margin: 0; }
-    #gameContainer { position: absolute; }
-    #gameContainer canvas { position: absolute; }
+    html, body {
+      background: #000;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      padding: 0;
+      margin: 0;
+    }
+
+    #gameContainer {
+      position: absolute;
+      display: none;
+    }
+
+    #gameContainer canvas {
+      position: absolute;
+      display: block;
+    }
+
+    #loadingBar {
+      color: white;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+
+    #loadingSub {
+      display: block;
+      margin-top: 8px;
+      font-size: 13px;
+      color: #bbb;
+    }
   </style>
 </head>
 <body>
 
   <script id="gmsoft-jssdk" src="gmsoftsdk_v5.js"></script>
 
-  <div id="gameContainer" style="display:none;">
+  <div id="gameContainer">
     <canvas id="unity-canvas"></canvas>
   </div>
 
-  <div id="loadingBar" style="color:white; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); font-family:Arial;">
+  <div id="loadingBar">
     loading... <span id="pct">0%</span>
+    <span id="loadingSub">preparing files</span>
   </div>
 
   <script>
@@ -27,9 +60,11 @@
     function firebaseLogEvent(event_name) {
       console.log("firebaseLogEvent (stubbed):", event_name);
     }
+
     function firebaseLogEventParameter(event_name, event_param) {
       console.log("firebaseLogEventParameter (stubbed):", event_name, event_param);
     }
+
     function firebaseSetUserProperties(props) {
       console.log("firebaseSetUserProperties (stubbed):", props);
     }
@@ -40,7 +75,7 @@
       files: [
         { name: "escape-road-city-2-v25103106.data.unityweb", parts: 2 }
       ],
-      basePath: "./",
+      basePath: "Build/",
       debug: true
     };
   </script>
@@ -60,6 +95,7 @@
 
         var buffer = await response.arrayBuffer();
         var uint8 = new Uint8Array(buffer);
+
         buffers.push(uint8);
         totalLength += uint8.length;
       }
@@ -77,10 +113,12 @@
 
     async function prepareMergedFiles(config) {
       var result = {};
+
       for (var i = 0; i < config.files.length; i++) {
         var entry = config.files[i];
         result[entry.name] = await mergeSplitFile(entry.name, entry.parts, config.basePath);
       }
+
       return result;
     }
   </script>
@@ -89,8 +127,10 @@
     var canvas = document.getElementById("unity-canvas");
     var container = document.getElementById("gameContainer");
     var loadingBar = document.getElementById("loadingBar");
+    var pct = document.getElementById("pct");
+    var loadingSub = document.getElementById("loadingSub");
 
-    var buildUrl = ".";
+    var buildUrl = "Build";
     var config = {
       dataUrl: buildUrl + "/escape-road-city-2-v25103106.data.unityweb",
       frameworkUrl: buildUrl + "/escape-road-city-2-v25103106.framework.js.unityweb",
@@ -111,48 +151,66 @@
       var w = window.innerWidth;
       var h = window.innerHeight;
       var r = 540 / 960;
-      if (w * r > h) w = Math.ceil(h / r);
+
+      if (w * r > h) {
+        w = Math.ceil(h / r);
+      }
+
       h = Math.floor(w * r);
+
       container.style.width = canvas.style.width = w + "px";
       container.style.height = canvas.style.height = h + "px";
       container.style.top = Math.floor((window.innerHeight - h) / 2) + "px";
       container.style.left = Math.floor((window.innerWidth - w) / 2) + "px";
     }
+
     onResize();
     window.addEventListener("resize", onResize);
 
     (async function () {
       try {
+        loadingSub.textContent = "merging split data";
+
         var mergedFiles = await prepareMergedFiles(window.fileMergerConfig);
+
         if (mergedFiles["escape-road-city-2-v25103106.data.unityweb"]) {
           config.dataUrl = mergedFiles["escape-road-city-2-v25103106.data.unityweb"];
         }
 
+        loadingSub.textContent = "loading unity loader";
+
         var script = document.createElement("script");
         script.src = buildUrl + "/escape-road-city-2-v25103106.loader.js";
+
         script.onload = function() {
+          loadingSub.textContent = "starting unity";
+
           createUnityInstance(canvas, config, function(progress) {
-            document.getElementById("pct").innerText = Math.round(progress * 100) + "%";
+            pct.innerText = Math.round(progress * 100) + "%";
           }).then(function(instance) {
             window.unityInstance = instance;
+
             setTimeout(function() {
               loadingBar.style.display = "none";
               container.style.display = "block";
               window.focus();
+              onResize();
             }, 2000);
           }).catch(function(msg) {
             console.log("Unity load error:", msg);
-            loadingBar.innerHTML = "failed to load";
+            loadingBar.innerHTML = 'failed to load<br><span id="loadingSub">check console for details</span>';
           });
         };
+
         script.onerror = function() {
           console.log("Failed to load Unity loader script.");
-          loadingBar.innerHTML = "failed to load";
+          loadingBar.innerHTML = 'failed to load<br><span id="loadingSub">loader file missing or wrong path</span>';
         };
+
         document.body.appendChild(script);
       } catch (err) {
         console.log("Startup error:", err);
-        loadingBar.innerHTML = "failed to load";
+        loadingBar.innerHTML = 'failed to load<br><span id="loadingSub">' + String(err && err.message ? err.message : err) + '</span>';
       }
     })();
   </script>
